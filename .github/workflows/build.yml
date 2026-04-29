@@ -7,16 +7,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout your forked repository
-        uses: actions/checkout@v4
-        with:
-          repository: MXBikeraGIT/bionic-vulkan-wrapper   # Change to your username
-          ref: main   # or 'wrapper' branch if that's where Mesa is
+      - name: Clone repository (manual, to avoid checkout issues)
+        run: |
+          git clone --depth 1 --branch wrapper https://github.com/leegao/bionic-vulkan-wrapper.git mesa-src
+          # Optionally, if you want to use your own fork, replace URL with your fork's URL
+          # git clone --depth 1 --branch wrapper https://github.com/MXBikeraGIT/bionic-vulkan-wrapper.git mesa-src
 
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y python3-pip meson ninja-build git cmake
+          sudo apt install -y python3-pip meson ninja-build cmake
           pip3 install mako
 
       - name: Setup Android NDK
@@ -25,10 +25,9 @@ jobs:
         with:
           ndk-version: r27c
 
-      - name: Apply Mali workarounds to wrap_physical_device.c
+      - name: Apply Mali workarounds
         run: |
-          cd src/vulkan/wrap
-          # Create a patch file
+          cd mesa-src/src/vulkan/wrap
           cat > mali_workarounds.patch << 'EOF'
           --- a/src/vulkan/wrap/wrap_physical_device.c
           +++ b/src/vulkan/wrap/wrap_physical_device.c
@@ -38,10 +37,8 @@ jobs:
            
           +    // Mali workarounds
           +    if (strstr(phys_dev->device_props.deviceName, "Mali")) {
-          +        // Clamp maxStorageBufferRange to 128 MB
           +        if (phys_dev->device_props.limits.maxStorageBufferRange > 128 * 1024 * 1024)
           +            phys_dev->device_props.limits.maxStorageBufferRange = 128 * 1024 * 1024;
-          +        // Force shaderStorageBufferArrayDynamicIndexing support
           +        phys_dev->features.features.shaderStorageBufferArrayDynamicIndexing = VK_TRUE;
           +    }
           +
@@ -50,8 +47,9 @@ jobs:
           EOF
           patch -p1 < mali_workarounds.patch
 
-      - name: Configure and build wrap driver
+      - name: Configure and build
         run: |
+          cd mesa-src
           export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
           meson setup build \
             --cross-file cross_files/android-aarch64 \
@@ -62,10 +60,10 @@ jobs:
             -Dbuildtype=release
           ninja -C build
 
-      - name: Rename and copy driver
+      - name: Copy artifact
         run: |
           mkdir -p artifacts
-          cp build/src/vulkan/wrap/libvulkan_wrap.so artifacts/libvulkan_wrapper.so
+          cp mesa-src/build/src/vulkan/wrap/libvulkan_wrap.so artifacts/libvulkan_wrapper.so
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
