@@ -1,4 +1,4 @@
-name: Build Vulkan Wrapper (Mali)
+name: Build wrap Vulkan driver (minimal)
 
 on:
   workflow_dispatch:
@@ -7,17 +7,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout your fork
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          repository: MXBikeraGIT/bionic-vulkan-wrapper   # your fork
+          repository: MXBikeraGIT/bionic-vulkan-wrapper
           ref: wrapper
           fetch-depth: 1
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
           sudo apt update
-          sudo apt install -y python3-pip meson ninja-build cmake
+          sudo apt install -y python3-pip meson ninja-build
           pip3 install mako
 
       - name: Setup Android NDK
@@ -26,50 +26,43 @@ jobs:
         with:
           ndk-version: r27c
 
-      - name: Apply Mali workarounds
+      - name: Create cross compilation file
         run: |
-          cd src/vulkan/wrapper
-          # Patch the file that defines the physical device properties
-          # We'll add a small function and hook it into the init routine
-          cat >> wrapper_physical_device.c << 'EOF'
-          // Mali workarounds
-          #include <string.h>
-          static void mali_workarounds(struct wrapper_physical_device *phys_dev) {
-              if (strstr(phys_dev->device_props.deviceName, "Mali")) {
-                  if (phys_dev->device_props.limits.maxStorageBufferRange > 128 * 1024 * 1024)
-                      phys_dev->device_props.limits.maxStorageBufferRange = 128 * 1024 * 1024;
-                  phys_dev->features.features.shaderStorageBufferArrayDynamicIndexing = VK_TRUE;
-              }
-          }
+          NDK=${{ steps.ndk.outputs.ndk-path }}
+          cat > android-aarch64.txt << EOF
+          [binaries]
+          c = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang'
+          cpp = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++'
+          ar = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          pkg-config = '/usr/bin/pkg-config'
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8-a'
+          endian = 'little'
           EOF
-          # Insert a call before the function returns
-          sed -i '/return VK_SUCCESS;/i\
-              mali_workarounds(phys_dev);' wrapper_physical_device.c
 
-      - name: Build wrapper driver
+      - name: Configure and build wrap driver
         run: |
           export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
           meson setup build \
-            --cross-file android-aarch64 \
+            --cross-file android-aarch64.txt \
             -Dplatforms=android \
-            -Dvulkan-drivers=wrapper \
+            -Dvulkan-drivers=wrap \
             -Dgallium-drivers= \
             -Dandroid-stub=true \
             -Dbuildtype=release
           ninja -C build
 
-      - name: Copy artifact
+      - name: Copy output library
         run: |
           mkdir -p artifacts
-          # Find the built library (usually in build/src/vulkan/wrapper/libvulkan_wrapper.so)
-          if [ -f build/src/vulkan/wrapper/libvulkan_wrapper.so ]; then
-            cp build/src/vulkan/wrapper/libvulkan_wrapper.so artifacts/
-          else
-            find build -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
-          fi
+          # The built library is usually build/src/vulkan/wrap/libvulkan_wrap.so
+          cp build/src/vulkan/wrap/libvulkan_wrap.so artifacts/libvulkan_wrapper.so
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: libvulkan_wrapper
+          name: libvulkan-wrapper
           path: artifacts/libvulkan_wrapper.so
