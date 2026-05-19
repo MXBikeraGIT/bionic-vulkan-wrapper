@@ -43,13 +43,13 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Configure and build wrap driver
+      - name: Configure and build wrapper driver
         run: |
           export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
           meson setup build \
             --cross-file android-aarch64.txt \
             -Dplatforms=android \
-            -Dvulkan-drivers=wrap \
+            -Dvulkan-drivers=wrapper \
             -Dgallium-drivers= \
             -Dandroid-stub=true \
             -Dbuildtype=release
@@ -58,8 +58,12 @@ jobs:
       - name: Copy output library
         run: |
           mkdir -p artifacts
-          # The built library is usually build/src/vulkan/wrap/libvulkan_wrap.so
-          cp build/src/vulkan/wrap/libvulkan_wrap.so artifacts/libvulkan_wrapper.so
+          # The built library is likely build/src/vulkan/wrapper/libvulkan_wrapper.so
+          if [ -f build/src/vulkan/wrapper/libvulkan_wrapper.so ]; then
+            cp build/src/vulkan/wrapper/libvulkan_wrapper.so artifacts/
+          else
+            find build -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
