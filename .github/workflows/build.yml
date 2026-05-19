@@ -17,7 +17,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt update
-          sudo apt install -y python3-pip meson ninja-build
+          sudo apt install -y python3-pip meson ninja-build libdrm-dev
           pip3 install mako
 
       - name: Setup Android NDK
@@ -52,14 +52,12 @@ jobs:
             -Dvulkan-drivers=wrapper \
             -Dgallium-drivers= \
             -Dandroid-stub=true \
-            -Ddrm=disabled \
             -Dbuildtype=release
           ninja -C build
 
       - name: Copy output library
         run: |
           mkdir -p artifacts
-          # The built library is typically build/src/vulkan/wrapper/libvulkan_wrapper.so
           if [ -f build/src/vulkan/wrapper/libvulkan_wrapper.so ]; then
             cp build/src/vulkan/wrapper/libvulkan_wrapper.so artifacts/
           else
