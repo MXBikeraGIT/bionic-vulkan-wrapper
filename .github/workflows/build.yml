@@ -43,44 +43,60 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Add SPIR‑V patching code to shader_utils.cpp
+      - name: List files in src/vulkan/wrapper (debug)
+        run: |
+          ls -la src/vulkan/wrapper/
+
+      - name: Find source file containing WrappedCreateShaderModule
         run: |
           cd src/vulkan/wrapper
-          # Ensure stdio.h and stdlib.h are included (add at top if not already)
-          if ! grep -q '#include <stdio.h>' shader_utils.cpp; then
-            sed -i '1i #include <stdio.h>\n#include <stdlib.h>\n#include <string.h>' shader_utils.cpp
+          TARGET_FILE=$(grep -l "WrappedCreateShaderModule" *.cpp 2>/dev/null | head -1)
+          if [ -z "$TARGET_FILE" ]; then
+            echo "Error: WrappedCreateShaderModule not found in any .cpp file"
+            exit 1
           fi
-          # Append the patching function
-          cat >> shader_utils.cpp << 'EOF'
+          echo "TARGET_FILE=$TARGET_FILE" >> $GITHUB_ENV
+          echo "Found target file: $TARGET_FILE"
 
-          // SPIR‑V patching: remove all OpDecorate instructions
-          static uint32_t* strip_op_decorate(const uint32_t* code, size_t word_count, size_t* out_word_count) {
-              if (word_count < 5) return NULL;
-              size_t new_word_count = 5;
-              for (size_t i = 5; i < word_count; ) {
-                  uint16_t opcode = code[i] & 0xFFFF;
-                  uint16_t word_len = code[i] >> 16;
-                  if (opcode != 51) new_word_count += word_len; // 51 = OpDecorate
-                  i += word_len;
-              }
-              uint32_t* new_code = (uint32_t*)malloc(new_word_count * sizeof(uint32_t));
-              if (!new_code) return NULL;
-              memcpy(new_code, code, 5 * sizeof(uint32_t));
-              size_t out_idx = 5;
-              for (size_t i = 5; i < word_count; ) {
-                  uint16_t opcode = code[i] & 0xFFFF;
-                  uint16_t word_len = code[i] >> 16;
-                  if (opcode != 51) {
-                      memcpy(new_code + out_idx, code + i, word_len * sizeof(uint32_t));
-                      out_idx += word_len;
-                  }
-                  i += word_len;
-              }
-              *out_word_count = new_word_count;
-              return new_code;
-          }
-          EOF
-          # Find the function WrappedCreateShaderModule and add the patching call
+      - name: Add SPIR‑V patching code to ${{ env.TARGET_FILE }}
+        run: |
+          cd src/vulkan/wrapper
+          TARGET_FILE="${{ env.TARGET_FILE }}"
+          # Ensure stdio.h and stdlib.h are included (add at top if not already)
+          if ! grep -q '#include <stdio.h>' "$TARGET_FILE"; then
+            sed -i '1i #include <stdio.h>\n#include <stdlib.h>\n#include <string.h>' "$TARGET_FILE"
+          fi
+          # Append the patching function after includes
+          sed -i '/#include <string.h>/a\
+          \
+          // SPIR‑V patching: remove all OpDecorate instructions\
+          static uint32_t* strip_op_decorate(const uint32_t* code, size_t word_count, size_t* out_word_count) {\
+              if (word_count < 5) return NULL;\
+              size_t new_word_count = 5;\
+              for (size_t i = 5; i < word_count; ) {\
+                  uint16_t opcode = code[i] & 0xFFFF;\
+                  uint16_t word_len = code[i] >> 16;\
+                  if (opcode != 51) new_word_count += word_len; /* 51 = OpDecorate */\
+                  i += word_len;\
+              }\
+              uint32_t* new_code = (uint32_t*)malloc(new_word_count * sizeof(uint32_t));\
+              if (!new_code) return NULL;\
+              memcpy(new_code, code, 5 * sizeof(uint32_t));\
+              size_t out_idx = 5;\
+              for (size_t i = 5; i < word_count; ) {\
+                  uint16_t opcode = code[i] & 0xFFFF;\
+                  uint16_t word_len = code[i] >> 16;\
+                  if (opcode != 51) {\
+                      memcpy(new_code + out_idx, code + i, word_len * sizeof(uint32_t));\
+                      out_idx += word_len;\
+                  }\
+                  i += word_len;\
+              }\
+              *out_word_count = new_word_count;\
+              return new_code;\
+          }' "$TARGET_FILE"
+
+          # Insert the hook inside WrappedCreateShaderModule
           sed -i '/^VkResult WrappedCreateShaderModule/,/^{/a\
               // Patch shader to remove OpDecorate\n\
               size_t patched_words;\n\
@@ -92,7 +108,7 @@ jobs:
                   VkResult res = real_vkCreateShaderModule(device, &patched_info, pAllocator, pShaderModule);\n\
                   free(patched);\n\
                   return res;\n\
-              }' shader_utils.cpp
+              }' "$TARGET_FILE"
 
       - name: Configure and build wrapper driver
         run: |
