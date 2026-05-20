@@ -1,4 +1,4 @@
-name: Build Wrapper with SPIRV-Tools (shader patching)
+name: Build Vulkan Wrapper with SPIR‑V Patching (strip OpDecorate)
 
 on:
   workflow_dispatch:
@@ -7,17 +7,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout wrapper source
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           repository: MXBikeraGIT/bionic-vulkan-wrapper
           ref: wrapper
           fetch-depth: 1
 
-      - name: Install build tools
+      - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y python3-pip meson ninja-build cmake
+          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev
           pip3 install mako
 
       - name: Setup Android NDK
@@ -25,61 +25,6 @@ jobs:
         id: ndk
         with:
           ndk-version: r27c
-
-      - name: Build SPIRV-Tools for Android
-        run: |
-          git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Tools.git
-          git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git
-          mkdir SPIRV-Tools/build
-          cd SPIRV-Tools/build
-          NDK=${{ steps.ndk.outputs.ndk-path }}
-          cmake -DCMAKE_TOOLCHAIN_FILE=$NDK/build/cmake/android.toolchain.cmake \
-                -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DSPIRV-Headers_SOURCE_DIR=../SPIRV-Headers \
-                -DBUILD_SHARED_LIBS=ON \
-                -DSPIRV_SKIP_TESTS=ON \
-                -DSPIRV_SKIP_EXECUTABLES=ON ..
-          make -j$(nproc)
-          mkdir -p ${{ github.workspace }}/spirv-tools-install/lib
-          cp lib/libSPIRV-Tools.so ${{ github.workspace }}/spirv-tools-install/lib/
-
-      - name: Patch wrapper to include SPIRV-Tools and add shader logging
-        run: |
-          cd src/vulkan/wrapper
-          # Add a simple logging stub inside WrappedCreateShaderModule
-          cat >> shader_utils.cpp << 'EOF'
-          #include <stdio.h>
-          #include <spirv-tools/libspirv.h>
-          extern "C" {
-              static void log_shader(const uint32_t* code, size_t words) {
-                  printf("[Wrapper] Shader module size: %zu words\n", words);
-                  // Example: dump first few words
-                  for (size_t i = 0; i < (words > 8 ? 8 : words); ++i) {
-                      printf("  word[%zu]: 0x%08x\n", i, code[i]);
-                  }
-              }
-          }
-          EOF
-          # Inject the logging call at the beginning of WrappedCreateShaderModule
-          sed -i '/^VkResult WrappedCreateShaderModule/,/^{/a\
-              log_shader(pCreateInfo->pCode, pCreateInfo->codeSize / sizeof(uint32_t));' shader_utils.cpp
-          echo "Added shader logging stub"
-
-      - name: Modify meson.build to link SPIRV-Tools
-        run: |
-          cd src/vulkan/wrapper
-          # Add dependency on SPIRV-Tools in meson.build (adjust path)
-          cat >> meson.build << 'EOF'
-          # Add SPIRV-Tools dependency
-          spirv_tools_inc = include_directories('${{ github.workspace }}/SPIRV-Tools/include')
-          spirv_tools_lib = declare_dependency(
-              include_directories : spirv_tools_inc,
-              link_args : ['-L${{ github.workspace }}/spirv-tools-install/lib', '-lSPIRV-Tools']
-          )
-          # Append to existing dependencies
-          all_deps += [spirv_tools_lib]
-          EOF
 
       - name: Create cross compilation file
         run: |
@@ -98,7 +43,58 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Build wrapper driver
+      - name: Inject SPIR‑V patching code into shader_utils.cpp
+        run: |
+          cd src/vulkan/wrapper
+          # Add the patching function and hook code
+          cat >> shader_utils.cpp << 'EOF'
+
+          // SPIR‑V patching: remove all OpDecorate instructions
+          #include <stdlib.h>
+          #include <string.h>
+          static uint32_t* strip_op_decorate(const uint32_t* code, size_t word_count, size_t* out_word_count) {
+              if (word_count < 5) return NULL;
+              size_t new_word_count = 5;
+              for (size_t i = 5; i < word_count; ) {
+                  uint16_t opcode = code[i] & 0xFFFF;
+                  uint16_t word_len = code[i] >> 16;
+                  if (opcode != 51) new_word_count += word_len; // 51 = OpDecorate
+                  i += word_len;
+              }
+              uint32_t* new_code = (uint32_t*)malloc(new_word_count * sizeof(uint32_t));
+              if (!new_code) return NULL;
+              memcpy(new_code, code, 5 * sizeof(uint32_t));
+              size_t out_idx = 5;
+              for (size_t i = 5; i < word_count; ) {
+                  uint16_t opcode = code[i] & 0xFFFF;
+                  uint16_t word_len = code[i] >> 16;
+                  if (opcode != 51) {
+                      memcpy(new_code + out_idx, code + i, word_len * sizeof(uint32_t));
+                      out_idx += word_len;
+                  }
+                  i += word_len;
+              }
+              *out_word_count = new_word_count;
+              return new_code;
+          }
+          EOF
+
+          # Insert the hook inside WrappedCreateShaderModule (after the function opening brace)
+          sed -i '/^VkResult WrappedCreateShaderModule/,/^{/a\
+              // Patch shader\n\
+              size_t patched_words;\n\
+              uint32_t* patched = strip_op_decorate(pCreateInfo->pCode, pCreateInfo->codeSize / sizeof(uint32_t), &patched_words);\n\
+              if (patched) {\n\
+                  VkShaderModuleCreateInfo patched_info = *pCreateInfo;\n\
+                  patched_info.pCode = patched;\n\
+                  patched_info.codeSize = patched_words * sizeof(uint32_t);\n\
+                  VkResult res = real_vkCreateShaderModule(device, &patched_info, pAllocator, pShaderModule);\n\
+                  free(patched);\n\
+                  return res;\n\
+              }\n\
+              // Fallback to original' shader_utils.cpp
+
+      - name: Configure and build wrapper driver
         run: |
           export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
           meson setup build \
@@ -115,14 +111,11 @@ jobs:
       - name: Copy output library
         run: |
           mkdir -p artifacts
-          if [ -f build/src/vulkan/wrapper/libvulkan_wrapper.so ]; then
-            cp build/src/vulkan/wrapper/libvulkan_wrapper.so artifacts/
-          else
-            find build -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
-          fi
+          cp build/src/vulkan/wrapper/libvulkan_wrapper.so artifacts/
+          ls -la artifacts/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vulkan-wrapper-spirv-tools
+          name: vulkan-wrapper-spirv-patcher
           path: artifacts/libvulkan_wrapper.so
