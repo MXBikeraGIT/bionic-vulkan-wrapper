@@ -43,23 +43,45 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Restore original meson.build and remove SPIRV-Tools lines
+      - name: Replace meson.build with working version (no SPIRV-Tools)
         run: |
-          cd src/vulkan/wrapper
-          # Restore original from Git (just in case we broke it)
-          git checkout meson.build
-          # Remove lines that reference SPIRV-Tools (both the dependency and the usage)
-          sed -i '/spirv_tools/d' meson.build
-          sed -i '/SPIRV-Tools/d' meson.build
-          # Also remove any line that contains 'spirv-tools' (case-insensitive)
-          sed -i '/spirv-tools/d' meson.build
-          # If there is a stray parenthesis, we can remove empty parentheses lines (optional)
-          sed -i '/^[[:space:]]*)[[:space:]]*$/d' meson.build
+          cat > src/vulkan/wrapper/meson.build << 'EOF'
+          project('vulkan_wrapper', 'cpp',
+                    default_options : ['cpp_std=c++14', 'buildtype=release'])
+
+          add_project_arguments('-DVK_NO_PROTOTYPES', language : 'cpp')
+
+          inc = include_directories('.')
+
+          src_files = [
+            'icd.cpp',
+            'device.cpp',
+            'physical_device.cpp',
+            'wrapper_common.cpp',
+            'spirv_edit.cpp',
+            'artifacts.cpp',
+            'graphics_env_hooks.cpp'
+          ]
+
+          wrapper_deps = []
+
+          if host_machine.system() == 'android'
+            add_project_arguments('-DANDROID', language : 'cpp')
+            wrapper_deps += dependency('android', required : true)
+          endif
+
+          shared_library('vulkan_wrapper',
+            src_files,
+            include_directories : inc,
+            dependencies : wrapper_deps,
+            install : true,
+            version : '0.0.0')
+          EOF
 
       - name: Add SPIR‑V patching code to spirv_edit.cpp
         run: |
           cd src/vulkan/wrapper
-          # Ensure we have the necessary includes (add at top if missing)
+          # Ensure includes are present
           if ! grep -q '#include <vector>' spirv_edit.cpp; then
             sed -i '1i #include <vector>\n#include <cstring>' spirv_edit.cpp
           fi
@@ -87,7 +109,7 @@ jobs:
               // First strip OpDecorate instructions
               auto stripped = strip_op_decorate(spirv_binary, spirv_word_count);
               WLOG("[Wrapper] Stripped OpDecorate: %zu -> %zu words", spirv_word_count, stripped.size());
-              // Fall back to original implementation (without SPIRV-Tools, just copy)
+              // Use the stripped version
               out->spirv_word_count = stripped.size();
               out->spirv_code = static_cast<uint32_t*>(malloc(stripped.size() * sizeof(uint32_t)));
               if (!out->spirv_code) return 1;
