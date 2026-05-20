@@ -1,4 +1,4 @@
-name: Build Vulkan Wrapper with SPIR‑V Patching
+name: Wrapper with Spir-v Patching
 
 on:
   workflow_dispatch:
@@ -43,10 +43,13 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Remove SPIRV-Tools and glslang_quiet references from wrapper's meson.build
+      - name: Clean meson.build (remove all SPIRV-Tools references)
         run: |
           cd src/vulkan/wrapper
+          # Remove lines containing 'spirv_tools' or 'SPIRV-Tools'
+          sed -i '/spirv_tools/d' meson.build
           sed -i '/SPIRV-Tools/d' meson.build
+          # Also remove glslang_quiet if present
           sed -i '/glslang_quiet/d' meson.build
 
       - name: Add SPIR‑V patching code
