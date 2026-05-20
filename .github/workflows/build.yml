@@ -1,4 +1,4 @@
-name: Wrapper with Spir-v Patching
+name: Build Vulkan Wrapper (Termux style)
 
 on:
   workflow_dispatch:
@@ -7,139 +7,56 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout termux-packages
+        uses: actions/checkout@v4
+        with:
+          repository: termux/termux-packages
+          path: termux-packages
+
+      - name: Checkout wrapper source (your fork)
         uses: actions/checkout@v4
         with:
           repository: MXBikeraGIT/bionic-vulkan-wrapper
+          path: bionic-vulkan-wrapper
           ref: wrapper
-          fetch-depth: 1
 
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev
-          pip3 install mako
-
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: ndk
+      - name: Checkout leegao's termux package definition
+        uses: actions/checkout@v4
         with:
-          ndk-version: r27c
+          repository: leegao/vulkan_wrapper_termux-packages
+          path: vulkan_wrapper_termux-packages
 
-      - name: Create cross compilation file
+      - name: Setup Docker and run Termux build
         run: |
-          NDK=${{ steps.ndk.outputs.ndk-path }}
-          cat > android-aarch64.txt << EOF
-          [binaries]
-          c = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang'
-          cpp = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++'
-          ar = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-          strip = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
-          pkg-config = '/usr/bin/pkg-config'
-          [host_machine]
-          system = 'android'
-          cpu_family = 'aarch64'
-          cpu = 'armv8-a'
-          endian = 'little'
-          EOF
+          # Copy the package definition into termux-packages tree
+          cp -r vulkan_wrapper_termux-packages/* termux-packages/packages/vulkan_wrapper/
+          # Build using Termux Docker image
+          cd termux-packages
+          docker run --rm -v $PWD:/home/builder/termux-packages termux/package-builder /bin/bash -c "
+            ./build-package.sh -I vulkan_wrapper
+          "
+          # The built .deb file will be in ./debs/
+          ls -la ./debs/
 
-      - name: Replace meson.build with working version (no SPIRV-Tools)
+      - name: Extract libvulkan_wrapper.so from .deb
         run: |
-          cat > src/vulkan/wrapper/meson.build << 'EOF'
-          project('vulkan_wrapper', 'cpp',
-                    default_options : ['cpp_std=c++14', 'buildtype=release'])
-
-          add_project_arguments('-DVK_NO_PROTOTYPES', language : 'cpp')
-
-          inc = include_directories('.')
-
-          src_files = [
-            'icd.cpp',
-            'device.cpp',
-            'physical_device.cpp',
-            'wrapper_common.cpp',
-            'spirv_edit.cpp',
-            'artifacts.cpp',
-            'graphics_env_hooks.cpp'
-          ]
-
-          wrapper_deps = []
-
-          if host_machine.system() == 'android'
-            add_project_arguments('-DANDROID', language : 'cpp')
-            wrapper_deps += dependency('android', required : true)
-          endif
-
-          shared_library('vulkan_wrapper',
-            src_files,
-            include_directories : inc,
-            dependencies : wrapper_deps,
-            install : true,
-            version : '0.0.0')
-          EOF
-
-      - name: Add SPIR‑V patching code to spirv_edit.cpp
-        run: |
-          cd src/vulkan/wrapper
-          # Ensure includes are present
-          if ! grep -q '#include <vector>' spirv_edit.cpp; then
-            sed -i '1i #include <vector>\n#include <cstring>' spirv_edit.cpp
+          mkdir -p extracted
+          # Find the .deb file (name may vary)
+          DEB=$(find termux-packages/debs -name "vulkan_wrapper*.deb" | head -1)
+          if [ -z "$DEB" ]; then
+            echo "No .deb found"
+            exit 1
           fi
-          cat >> spirv_edit.cpp << 'EOF'
-
-          // Simple SPIR‑V OpDecorate stripper (no external dependencies)
-          static std::vector<uint32_t> strip_op_decorate(const uint32_t* code, size_t word_count) {
-              std::vector<uint32_t> result;
-              if (word_count < 5) return result;
-              result.insert(result.end(), code, code + 5);
-              size_t i = 5;
-              while (i < word_count) {
-                  uint16_t opcode = code[i] & 0xFFFF;
-                  uint16_t word_len = code[i] >> 16;
-                  if (opcode != 51) { // OpDecorate = 51
-                      result.insert(result.end(), code + i, code + i + word_len);
-                  }
-                  i += word_len;
-              }
-              return result;
-          }
-
-          // Hook into the existing Mali optimization pass
-          extern "C" int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
-              // First strip OpDecorate instructions
-              auto stripped = strip_op_decorate(spirv_binary, spirv_word_count);
-              WLOG("[Wrapper] Stripped OpDecorate: %zu -> %zu words", spirv_word_count, stripped.size());
-              // Use the stripped version
-              out->spirv_word_count = stripped.size();
-              out->spirv_code = static_cast<uint32_t*>(malloc(stripped.size() * sizeof(uint32_t)));
-              if (!out->spirv_code) return 1;
-              std::memcpy(out->spirv_code, stripped.data(), stripped.size() * sizeof(uint32_t));
-              return 0;
-          }
-          EOF
-
-      - name: Configure and build wrapper driver
-        run: |
-          export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
-          meson setup build \
-            --cross-file android-aarch64.txt \
-            -Dplatforms=android \
-            -Dvulkan-drivers=wrapper \
-            -Dgallium-drivers= \
-            -Dandroid-stub=true \
-            -Dbuildtype=release \
-            -Dglx=disabled \
-            -Degl=disabled
-          ninja -C build
-
-      - name: Copy output library
-        run: |
+          # Extract the .deb
+          dpkg-deb -x "$DEB" extracted/
+          # Find the .so file (likely in data/data/com.termux/files/usr/lib/)
+          find extracted -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
           mkdir -p artifacts
-          cp build/src/vulkan/wrapper/libvulkan_wrapper.so artifacts/
+          find extracted -name "*.so" -exec cp {} artifacts/ \;
           ls -la artifacts/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wrapper-spirv-patcher
+          name: vulkan-wrapper-termux
           path: artifacts/libvulkan_wrapper.so
