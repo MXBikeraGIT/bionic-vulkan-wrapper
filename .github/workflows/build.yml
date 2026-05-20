@@ -43,49 +43,29 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Replace meson.build with corrected version (no SPIRV-Tools)
+      - name: Restore original meson.build and remove SPIRV-Tools lines
         run: |
-          cat > src/vulkan/wrapper/meson.build << 'EOF'
-          project('wrapper', 'cpp',
-                    default_options : ['cpp_std=c++17'])
-
-          add_project_arguments('-DVK_NO_PROTOTYPES', language : 'cpp')
-
-          inc = include_directories('.')
-
-          wrapper_sources = files(
-            'icd.cpp',
-            'device.cpp',
-            'physical_device.cpp',
-            'wrapper_common.cpp',
-            'spirv_edit.cpp',
-            'artifacts.cpp',
-            'graphics_env_hooks.cpp'
-          )
-
-          wrapper_deps = []
-
-          if host_machine.system() == 'android'
-            add_project_arguments('-DANDROID', language : 'cpp')
-            wrapper_deps += dependency('android')
-          endif
-
-          shared_library('vulkan_wrapper',
-            wrapper_sources,
-            include_directories : inc,
-            dependencies : wrapper_deps,
-            install : true,
-            soversion : '0')
-          EOF
+          cd src/vulkan/wrapper
+          # Restore original from Git (just in case we broke it)
+          git checkout meson.build
+          # Remove lines that reference SPIRV-Tools (both the dependency and the usage)
+          sed -i '/spirv_tools/d' meson.build
+          sed -i '/SPIRV-Tools/d' meson.build
+          # Also remove any line that contains 'spirv-tools' (case-insensitive)
+          sed -i '/spirv-tools/d' meson.build
+          # If there is a stray parenthesis, we can remove empty parentheses lines (optional)
+          sed -i '/^[[:space:]]*)[[:space:]]*$/d' meson.build
 
       - name: Add SPIR‑V patching code to spirv_edit.cpp
         run: |
           cd src/vulkan/wrapper
+          # Ensure we have the necessary includes (add at top if missing)
+          if ! grep -q '#include <vector>' spirv_edit.cpp; then
+            sed -i '1i #include <vector>\n#include <cstring>' spirv_edit.cpp
+          fi
           cat >> spirv_edit.cpp << 'EOF'
 
           // Simple SPIR‑V OpDecorate stripper (no external dependencies)
-          #include <vector>
-          #include <cstring>
           static std::vector<uint32_t> strip_op_decorate(const uint32_t* code, size_t word_count) {
               std::vector<uint32_t> result;
               if (word_count < 5) return result;
