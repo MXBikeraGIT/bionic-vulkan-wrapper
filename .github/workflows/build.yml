@@ -1,4 +1,4 @@
-name: Build Vulkan Wrapper with SPIR‑V Patching (strip OpDecorate)
+name: Build Vulkan Wrapper with SPIR‑V Patching
 
 on:
   workflow_dispatch:
@@ -43,10 +43,16 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Inject SPIR‑V patching code into shader_utils.cpp
+      - name: Fix meson.build to remove glslang_quiet reference
         run: |
           cd src/vulkan/wrapper
-          # Add the patching function and hook code
+          # Remove the line referencing glslang_quiet (line 143)
+          sed -i '/glslang_quiet/d' meson.build
+
+      - name: Add SPIR‑V patching code
+        run: |
+          cd src/vulkan/wrapper
+          # Add patching function and hook
           cat >> shader_utils.cpp << 'EOF'
 
           // SPIR‑V patching: remove all OpDecorate instructions
@@ -79,9 +85,8 @@ jobs:
           }
           EOF
 
-          # Insert the hook inside WrappedCreateShaderModule (after the function opening brace)
+          # Insert hook into WrappedCreateShaderModule
           sed -i '/^VkResult WrappedCreateShaderModule/,/^{/a\
-              // Patch shader\n\
               size_t patched_words;\n\
               uint32_t* patched = strip_op_decorate(pCreateInfo->pCode, pCreateInfo->codeSize / sizeof(uint32_t), &patched_words);\n\
               if (patched) {\n\
@@ -91,8 +96,7 @@ jobs:
                   VkResult res = real_vkCreateShaderModule(device, &patched_info, pAllocator, pShaderModule);\n\
                   free(patched);\n\
                   return res;\n\
-              }\n\
-              // Fallback to original' shader_utils.cpp
+              }' shader_utils.cpp
 
       - name: Configure and build wrapper driver
         run: |
@@ -105,7 +109,8 @@ jobs:
             -Dandroid-stub=true \
             -Dbuildtype=release \
             -Dglx=disabled \
-            -Degl=disabled
+            -Degl=disabled \
+            -Dlibelf=disabled
           ninja -C build
 
       - name: Copy output library
