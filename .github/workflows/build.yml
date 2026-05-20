@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev glslang-tools
+          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev glslang-tools
           pip3 install mako
 
       - name: Setup Android NDK
@@ -43,14 +43,11 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Fix meson.build (remove glslang_quiet and patch any missing program checks)
+      - name: Remove SPIRV-Tools and glslang_quiet references from wrapper's meson.build
         run: |
           cd src/vulkan/wrapper
-          # Remove glslang_quiet reference
+          sed -i '/SPIRV-Tools/d' meson.build
           sed -i '/glslang_quiet/d' meson.build
-          # Replace any "command" that uses a not-found program with a dummy (e.g., comment out)
-          # This is a bit aggressive, but we'll just remove the line that tries to use glslangValidator
-          sed -i '/glslangValidator/d' meson.build
 
       - name: Add SPIR‑V patching code
         run: |
