@@ -13,6 +13,12 @@ jobs:
           repository: termux/termux-packages
           path: termux-packages
 
+      - name: Checkout leegao's termux package definition
+        uses: actions/checkout@v4
+        with:
+          repository: leegao/vulkan_wrapper_termux-packages
+          path: vulkan_wrapper_termux-packages
+
       - name: Checkout wrapper source (your fork)
         uses: actions/checkout@v4
         with:
@@ -20,39 +26,30 @@ jobs:
           path: bionic-vulkan-wrapper
           ref: wrapper
 
-      - name: Checkout leegao's termux package definition
-        uses: actions/checkout@v4
-        with:
-          repository: leegao/vulkan_wrapper_termux-packages
-          path: vulkan_wrapper_termux-packages
-
-      - name: Setup Docker and run Termux build
+      - name: Setup Termux package directory
         run: |
-          # Copy the package definition into termux-packages tree
+          mkdir -p termux-packages/packages/vulkan_wrapper
           cp -r vulkan_wrapper_termux-packages/* termux-packages/packages/vulkan_wrapper/
-          # Build using Termux Docker image
+
+      - name: Build with Termux Docker
+        run: |
           cd termux-packages
           docker run --rm -v $PWD:/home/builder/termux-packages termux/package-builder /bin/bash -c "
             ./build-package.sh -I vulkan_wrapper
           "
-          # The built .deb file will be in ./debs/
-          ls -la ./debs/
 
-      - name: Extract libvulkan_wrapper.so from .deb
+      - name: Extract libvulkan_wrapper.so
         run: |
-          mkdir -p extracted
+          mkdir -p artifacts
           # Find the .deb file (name may vary)
           DEB=$(find termux-packages/debs -name "vulkan_wrapper*.deb" | head -1)
           if [ -z "$DEB" ]; then
-            echo "No .deb found"
-            exit 1
+            echo "No .deb found; searching for .so directly"
+            find termux-packages -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
+          else
+            dpkg-deb -x "$DEB" extracted/
+            find extracted -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
           fi
-          # Extract the .deb
-          dpkg-deb -x "$DEB" extracted/
-          # Find the .so file (likely in data/data/com.termux/files/usr/lib/)
-          find extracted -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
-          mkdir -p artifacts
-          find extracted -name "*.so" -exec cp {} artifacts/ \;
           ls -la artifacts/
 
       - name: Upload artifact
