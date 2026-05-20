@@ -1,4 +1,4 @@
-name: Build Vulkan Wrapper (Termux style)
+name: Build Vulkan Wrapper (NDK, no SPIRV-Tools)
 
 on:
   workflow_dispatch:
@@ -7,53 +7,64 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout termux-packages
-        uses: actions/checkout@v4
-        with:
-          repository: termux/termux-packages
-          path: termux-packages
-
-      - name: Checkout leegao's termux package definition
-        uses: actions/checkout@v4
-        with:
-          repository: leegao/vulkan_wrapper_termux-packages
-          path: vulkan_wrapper_termux-packages
-
-      - name: Checkout wrapper source (your fork)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           repository: MXBikeraGIT/bionic-vulkan-wrapper
-          path: bionic-vulkan-wrapper
           ref: wrapper
+          fetch-depth: 1
 
-      - name: Setup Termux package directory
+      - name: Install dependencies
         run: |
-          mkdir -p termux-packages/packages/vulkan_wrapper
-          cp -r vulkan_wrapper_termux-packages/* termux-packages/packages/vulkan_wrapper/
+          sudo apt update
+          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev
+          pip3 install mako
 
-      - name: Build with Termux Docker
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r27c
+
+      - name: Create cross compilation file
         run: |
-          cd termux-packages
-          docker run --rm -v $PWD:/home/builder/termux-packages termux/package-builder /bin/bash -c "
-            ./build-package.sh -I vulkan_wrapper
-          "
+          NDK=${{ steps.ndk.outputs.ndk-path }}
+          cat > android-aarch64.txt << EOF
+          [binaries]
+          c = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang'
+          cpp = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++'
+          ar = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          pkg-config = '/usr/bin/pkg-config'
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8-a'
+          endian = 'little'
+          EOF
 
-      - name: Extract libvulkan_wrapper.so
+      - name: Configure and build wrapper driver (no SPIRV-Tools)
+        run: |
+          export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
+          meson setup build \
+            --cross-file android-aarch64.txt \
+            -Dplatforms=android \
+            -Dvulkan-drivers=wrapper \
+            -Dgallium-drivers= \
+            -Dandroid-stub=true \
+            -Dbuildtype=release \
+            -Dglx=disabled \
+            -Degl=disabled
+          ninja -C build
+
+      - name: Copy output library
         run: |
           mkdir -p artifacts
-          # Find the .deb file (name may vary)
-          DEB=$(find termux-packages/debs -name "vulkan_wrapper*.deb" | head -1)
-          if [ -z "$DEB" ]; then
-            echo "No .deb found; searching for .so directly"
-            find termux-packages -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
-          else
-            dpkg-deb -x "$DEB" extracted/
-            find extracted -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
-          fi
+          cp build/src/vulkan/wrapper/libvulkan_wrapper.so artifacts/
           ls -la artifacts/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vulkan-wrapper-termux
+          name: vulkan-wrapper-ndk
           path: artifacts/libvulkan_wrapper.so
