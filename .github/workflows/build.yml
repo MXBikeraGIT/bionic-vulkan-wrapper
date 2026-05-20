@@ -43,13 +43,42 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Remove SPIRV-Tools dependency from meson.build
+      - name: Replace meson.build with corrected version (no SPIRV-Tools)
         run: |
-          cd src/vulkan/wrapper
-          sed -i '/SPIRV-Tools/d' meson.build
-          sed -i '/spirv_tools/d' meson.build
+          cat > src/vulkan/wrapper/meson.build << 'EOF'
+          project('wrapper', 'cpp',
+                    default_options : ['cpp_std=c++17'])
 
-      - name: Add dependency‑free OpDecorate stripper and integrate into Mali pass
+          add_project_arguments('-DVK_NO_PROTOTYPES', language : 'cpp')
+
+          inc = include_directories('.')
+
+          wrapper_sources = files(
+            'icd.cpp',
+            'device.cpp',
+            'physical_device.cpp',
+            'wrapper_common.cpp',
+            'spirv_edit.cpp',
+            'artifacts.cpp',
+            'graphics_env_hooks.cpp'
+          )
+
+          wrapper_deps = []
+
+          if host_machine.system() == 'android'
+            add_project_arguments('-DANDROID', language : 'cpp')
+            wrapper_deps += dependency('android')
+          endif
+
+          shared_library('vulkan_wrapper',
+            wrapper_sources,
+            include_directories : inc,
+            dependencies : wrapper_deps,
+            install : true,
+            soversion : '0')
+          EOF
+
+      - name: Add SPIR‑V patching code to spirv_edit.cpp
         run: |
           cd src/vulkan/wrapper
           cat >> spirv_edit.cpp << 'EOF'
@@ -60,7 +89,6 @@ jobs:
           static std::vector<uint32_t> strip_op_decorate(const uint32_t* code, size_t word_count) {
               std::vector<uint32_t> result;
               if (word_count < 5) return result;
-              // Copy header
               result.insert(result.end(), code, code + 5);
               size_t i = 5;
               while (i < word_count) {
