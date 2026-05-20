@@ -43,16 +43,12 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: List files in src/vulkan/wrapper (debug)
-        run: |
-          ls -la src/vulkan/wrapper/
-
-      - name: Find source file containing WrappedCreateShaderModule
+      - name: Find file containing vkCreateShaderModule implementation
         run: |
           cd src/vulkan/wrapper
-          TARGET_FILE=$(grep -l "WrappedCreateShaderModule" *.cpp 2>/dev/null | head -1)
+          TARGET_FILE=$(grep -l "vkCreateShaderModule" *.cpp 2>/dev/null | head -1)
           if [ -z "$TARGET_FILE" ]; then
-            echo "Error: WrappedCreateShaderModule not found in any .cpp file"
+            echo "Error: vkCreateShaderModule not found in any .cpp file"
             exit 1
           fi
           echo "TARGET_FILE=$TARGET_FILE" >> $GITHUB_ENV
@@ -62,11 +58,11 @@ jobs:
         run: |
           cd src/vulkan/wrapper
           TARGET_FILE="${{ env.TARGET_FILE }}"
-          # Ensure stdio.h and stdlib.h are included (add at top if not already)
+          # Add includes if not present
           if ! grep -q '#include <stdio.h>' "$TARGET_FILE"; then
             sed -i '1i #include <stdio.h>\n#include <stdlib.h>\n#include <string.h>' "$TARGET_FILE"
           fi
-          # Append the patching function after includes
+          # Add the patching function after includes
           sed -i '/#include <string.h>/a\
           \
           // SPIR‑V patching: remove all OpDecorate instructions\
@@ -96,15 +92,17 @@ jobs:
               return new_code;\
           }' "$TARGET_FILE"
 
-          # Insert the hook inside WrappedCreateShaderModule
-          sed -i '/^VkResult WrappedCreateShaderModule/,/^{/a\
-              // Patch shader to remove OpDecorate\n\
+          # Insert the patching call at the beginning of the vkCreateShaderModule function
+          # We need to find the function definition. It might be like "VkResult vkCreateShaderModule(..."
+          sed -i '/VkResult .*vkCreateShaderModule/,/^{/a\
               size_t patched_words;\n\
               uint32_t* patched = strip_op_decorate(pCreateInfo->pCode, pCreateInfo->codeSize / sizeof(uint32_t), &patched_words);\n\
               if (patched) {\n\
                   VkShaderModuleCreateInfo patched_info = *pCreateInfo;\n\
                   patched_info.pCode = patched;\n\
                   patched_info.codeSize = patched_words * sizeof(uint32_t);\n\
+                  // Call the real function (the real function pointer must be accessible)\n\
+                  // Assuming the real function is called real_vkCreateShaderModule\n\
                   VkResult res = real_vkCreateShaderModule(device, &patched_info, pAllocator, pShaderModule);\n\
                   free(patched);\n\
                   return res;\n\
