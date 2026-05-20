@@ -1,4 +1,4 @@
-name: Wrapper with Spir-v Patching
+name: Wrapper with Spir‑v Patching
 
 on:
   workflow_dispatch:
@@ -43,72 +43,20 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Find file containing vkCreateShaderModule
+      - name: Find and patch the real vkCreateShaderModule function
         run: |
+          # The function resides in one of the wrapper's source files
           cd src/vulkan/wrapper
-          echo "Listing all .cpp files:"
-          ls -la *.cpp 2>/dev/null || echo "No .cpp files found"
-          echo "Searching for vkCreateShaderModule:"
-          grep -rn "vkCreateShaderModule" *.cpp 2>/dev/null || echo "Not found in any .cpp"
-          # Capture the file name
-          TARGET_FILE=$(grep -l "vkCreateShaderModule" *.cpp 2>/dev/null | head -1)
+          TARGET_FILE=$(grep -l "vkCreateShaderModule" *.cpp | head -1)
           if [ -z "$TARGET_FILE" ]; then
             echo "ERROR: vkCreateShaderModule not found"
             exit 1
           fi
-          echo "TARGET_FILE=$TARGET_FILE" >> $GITHUB_ENV
+          echo "Patching file: $TARGET_FILE"
 
-      - name: Add SPIR‑V patching code to ${{ env.TARGET_FILE }}
-        run: |
-          cd src/vulkan/wrapper
-          TARGET_FILE="${{ env.TARGET_FILE }}"
-          # Add includes at top
-          if ! grep -q '#include <stdio.h>' "$TARGET_FILE"; then
-            sed -i '1i #include <stdio.h>\n#include <stdlib.h>\n#include <string.h>' "$TARGET_FILE"
-          fi
-          # Insert patching function after includes (find a safe spot)
-          sed -i '/#include <string.h>/a\
-          \
-          // SPIR‑V patching: remove all OpDecorate instructions\
-          static uint32_t* strip_op_decorate(const uint32_t* code, size_t word_count, size_t* out_word_count) {\
-              if (word_count < 5) return NULL;\
-              size_t new_word_count = 5;\
-              for (size_t i = 5; i < word_count; ) {\
-                  uint16_t opcode = code[i] & 0xFFFF;\
-                  uint16_t word_len = code[i] >> 16;\
-                  if (opcode != 51) new_word_count += word_len; /* 51 = OpDecorate */\
-                  i += word_len;\
-              }\
-              uint32_t* new_code = (uint32_t*)malloc(new_word_count * sizeof(uint32_t));\
-              if (!new_code) return NULL;\
-              memcpy(new_code, code, 5 * sizeof(uint32_t));\
-              size_t out_idx = 5;\
-              for (size_t i = 5; i < word_count; ) {\
-                  uint16_t opcode = code[i] & 0xFFFF;\
-                  uint16_t word_len = code[i] >> 16;\
-                  if (opcode != 51) {\
-                      memcpy(new_code + out_idx, code + i, word_len * sizeof(uint32_t));\
-                      out_idx += word_len;\
-                  }\
-                  i += word_len;\
-              }\
-              *out_word_count = new_word_count;\
-              return new_code;\
-          }' "$TARGET_FILE"
-
-          # Now find the function that implements vkCreateShaderModule and insert the hook at its beginning
-          # The function signature might be like: VKAPI_ATTR VkResult VKAPI_CALL vkCreateShaderModule(...)
-          sed -i '/VKAPI_CALL vkCreateShaderModule/,/^{/a\
-              size_t patched_words;\n\
-              uint32_t* patched = strip_op_decorate(pCreateInfo->pCode, pCreateInfo->codeSize / sizeof(uint32_t), &patched_words);\n\
-              if (patched) {\n\
-                  VkShaderModuleCreateInfo patched_info = *pCreateInfo;\n\
-                  patched_info.pCode = patched;\n\
-                  patched_info.codeSize = patched_words * sizeof(uint32_t);\n\
-                  VkResult res = real_vkCreateShaderModule(device, &patched_info, pAllocator, pShaderModule);\n\
-                  free(patched);\n\
-                  return res;\n\
-              }' "$TARGET_FILE"
+          # Add a simple log at the start of the function
+          sed -i '/^VkResult VKAPI_CALL vkCreateShaderModule/,/^{/a\
+              fprintf(stderr, "[Wrapper] vkCreateShaderModule called, code size = %zu\\n", pCreateInfo->codeSize);' "$TARGET_FILE"
 
       - name: Configure and build wrapper driver
         run: |
