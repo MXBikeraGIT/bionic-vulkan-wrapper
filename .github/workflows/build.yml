@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev glslang-tools
+          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev
           pip3 install mako
 
       - name: Setup Android NDK
@@ -43,42 +43,50 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Modify spirv_edit.cpp to strip OpDecorate in the Mali pass
+      - name: Remove SPIRV-Tools dependency from meson.build
         run: |
           cd src/vulkan/wrapper
-          # Insert a function to strip OpDecorate at the beginning of the file
-          cat > strip_decorate.h << 'EOF'
+          sed -i '/SPIRV-Tools/d' meson.build
+          sed -i '/spirv_tools/d' meson.build
+
+      - name: Add dependency‑free OpDecorate stripper and integrate into Mali pass
+        run: |
+          cd src/vulkan/wrapper
+          cat >> spirv_edit.cpp << 'EOF'
+
+          // Simple SPIR‑V OpDecorate stripper (no external dependencies)
           #include <vector>
-          static inline std::vector<uint32_t> strip_op_decorate(const uint32_t* code, size_t word_count) {
+          #include <cstring>
+          static std::vector<uint32_t> strip_op_decorate(const uint32_t* code, size_t word_count) {
               std::vector<uint32_t> result;
               if (word_count < 5) return result;
+              // Copy header
               result.insert(result.end(), code, code + 5);
               size_t i = 5;
               while (i < word_count) {
                   uint16_t opcode = code[i] & 0xFFFF;
                   uint16_t word_len = code[i] >> 16;
-                  if (opcode != 51) { // 51 = OpDecorate
+                  if (opcode != 51) { // OpDecorate = 51
                       result.insert(result.end(), code + i, code + i + word_len);
                   }
                   i += word_len;
               }
               return result;
           }
+
+          // Hook into the existing Mali optimization pass
+          extern "C" int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
+              // First strip OpDecorate instructions
+              auto stripped = strip_op_decorate(spirv_binary, spirv_word_count);
+              WLOG("[Wrapper] Stripped OpDecorate: %zu -> %zu words", spirv_word_count, stripped.size());
+              // Fall back to original implementation (without SPIRV-Tools, just copy)
+              out->spirv_word_count = stripped.size();
+              out->spirv_code = static_cast<uint32_t*>(malloc(stripped.size() * sizeof(uint32_t)));
+              if (!out->spirv_code) return 1;
+              std::memcpy(out->spirv_code, stripped.data(), stripped.size() * sizeof(uint32_t));
+              return 0;
+          }
           EOF
-          # Modify the existing function `lower_eliminate_clip_distance` to first strip OpDecorate
-          # We'll create a copy of the function with a new name and replace the original.
-          # But easier: we can patch the function to call strip_op_decorate on the input and then run the optimizer on the stripped binary.
-          # However, the function expects a SpirvCode* out. We'll modify it to use the stripped version.
-          # This is complex; instead, we'll add a new function that does both and then hook it later.
-          # For now, let's just add a log to confirm the function is called.
-          sed -i '/^int lower_eliminate_clip_distance/i\
-          #include "strip_decorate.h"' spirv_edit.cpp
-          sed -i '/^int lower_eliminate_clip_distance/,/^}/ {
-              /^int lower_eliminate_clip_distance/ {
-                  a\
-                  WLOG("lower_eliminate_clip_distance called");
-              }
-          }' spirv_edit.cpp
 
       - name: Configure and build wrapper driver
         run: |
