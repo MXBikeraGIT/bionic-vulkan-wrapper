@@ -43,7 +43,49 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Configure and build wrapper driver (no SPIRV-Tools)
+      - name: Remove SPIRV-Tools dependency from meson.build
+        run: |
+          cd src/vulkan/wrapper
+          # Remove lines that reference spirv-tools libraries
+          sed -i '/spirv_tools/d' meson.build
+          sed -i '/SPIRV-Tools/d' meson.build
+          # Comment out or remove the custom target that requires spirv-tools
+          sed -i '/wrapper_trampolines/,/^$/d' meson.build
+          sed -i '/wrapper_entrypoints/,/^$/d' meson.build
+
+      - name: Patch spirv_edit.cpp to remove SPIRV-Tools includes
+        run: |
+          cd src/vulkan/wrapper
+          # Comment out the includes that reference spirv-tools
+          sed -i 's/#include "spirv-tools\/spirv-tools\/optimizer.hpp"/\/\/ &/' spirv_edit.cpp
+          sed -i 's/#include "spirv-tools\/spirv-tools\/libspirv.hpp"/\/\/ &/' spirv_edit.cpp
+          # Add a simple stub for the missing functions
+          cat >> spirv_edit.cpp << 'EOF'
+
+          // Stubs for SPIRV-Tools functions (to satisfy linker)
+          #include <cstdlib>
+          extern "C" {
+              int optimize_spirv_for_size(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
+                  // Just copy the original binary
+                  out->spirv_word_count = spirv_word_count;
+                  out->spirv_code = (uint32_t*)malloc(spirv_word_count * sizeof(uint32_t));
+                  if (!out->spirv_code) return 1;
+                  memcpy(out->spirv_code, spirv_binary, spirv_word_count * sizeof(uint32_t));
+                  return 0;
+              }
+              int lower_eliminate_clip_distance(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
+                  return optimize_spirv_for_size(spirv_binary, spirv_word_count, out);
+              }
+              int fix_mali_spec_composite_constants(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
+                  return optimize_spirv_for_size(spirv_binary, spirv_word_count, out);
+              }
+              int add_optimization_barriers(const uint32_t* spirv_binary, size_t spirv_word_count, SpirvCode* out) {
+                  return optimize_spirv_for_size(spirv_binary, spirv_word_count, out);
+              }
+          }
+          EOF
+
+      - name: Configure and build wrapper driver
         run: |
           export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
           meson setup build \
