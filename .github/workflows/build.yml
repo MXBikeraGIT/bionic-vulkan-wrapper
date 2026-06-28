@@ -57,6 +57,12 @@ jobs:
           #endif
           }' zink_bo.c
 
+      - name: Remove glslang_quiet reference from wrapper meson.build
+        run: |
+          cd mesa-src/src/vulkan/wrapper
+          # Remove the line that references glslang_quiet
+          sed -i '/glslang_quiet/d' meson.build
+
       - name: Configure and build wrapper driver
         run: |
           export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
@@ -71,8 +77,7 @@ jobs:
             -Dandroid-stub=true \
             -Dbuildtype=release \
             -Dglx=disabled \
-            -Degl=disabled \
-            -Dglslang_quiet=true
+            -Degl=disabled
           ninja -C build
 
       - name: Copy library
