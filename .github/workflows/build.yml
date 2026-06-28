@@ -57,10 +57,16 @@ jobs:
           #endif
           }' zink_bo.c
 
-      - name: Remove glslang_quiet reference from wrapper meson.build
+      - name: Remove SPIRV-Tools dependency from wrapper meson.build
         run: |
           cd mesa-src/src/vulkan/wrapper
-          # Remove the line that references glslang_quiet
+          # Remove lines that reference SPIRV-Tools
+          sed -i '/SPIRV-Tools/d' meson.build
+          sed -i '/spirv_tools/d' meson.build
+
+      - name: Remove glslang_quiet reference from wrapper meson.build (if present)
+        run: |
+          cd mesa-src/src/vulkan/wrapper
           sed -i '/glslang_quiet/d' meson.build
 
       - name: Configure and build wrapper driver
