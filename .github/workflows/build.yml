@@ -1,4 +1,4 @@
-name: Build Vulkan Wrapper (Termux style)
+name: Build Vulkan Wrapper (NDK, no Termux)
 
 on:
   workflow_dispatch:
@@ -7,85 +7,80 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout termux-packages
+      - name: Checkout leegao wrapper source (Mesa)
         uses: actions/checkout@v4
         with:
-          repository: termux/termux-packages
-          path: termux-packages
+          repository: leegao/bionic-vulkan-wrapper
+          path: mesa-src
+          ref: wrapper
 
-      - name: Checkout leegao's vulkan_wrapper package definition
-        uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev
+          pip3 install mako
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: ndk
         with:
-          repository: leegao/vulkan_wrapper_termux-packages
-          path: vulkan_wrapper_termux-packages
-          ref: dev/wrapper
+          ndk-version: r27c
 
-      - name: List contents for debugging
+      - name: Create cross compilation file
         run: |
-          echo "Contents of vulkan_wrapper_termux-packages:"
-          ls -laR vulkan_wrapper_termux-packages/
-
-      - name: Setup package directory
-        run: |
-          mkdir -p termux-packages/packages/vulkan_wrapper
-          # If there is a subdirectory containing build.sh, copy it
-          if [ -f vulkan_wrapper_termux-packages/build.sh ]; then
-            cp -r vulkan_wrapper_termux-packages/* termux-packages/packages/vulkan_wrapper/
-          else
-            # Look for build.sh in subdirectories
-            BUILD_DIR=$(find vulkan_wrapper_termux-packages -name "build.sh" -exec dirname {} \; | head -1)
-            if [ -n "$BUILD_DIR" ]; then
-              cp -r $BUILD_DIR/* termux-packages/packages/vulkan_wrapper/
-            else
-              echo "build.sh not found, exiting"
-              exit 1
-            fi
-          fi
-
-      - name: Build with Termux Docker
-        run: |
-          cd termux-packages
-          docker run --rm -v $PWD:/home/builder/termux-packages termux/package-builder /bin/bash -c "
-            ./build-package.sh -I vulkan_wrapper
-          "
-
-      - name: Extract libvulkan_wrapper.so
-        run: |
-          DEB=$(find termux-packages/debs -name "vulkan_wrapper*.deb" | head -1)
-          if [ -z "$DEB" ]; then
-            echo "No .deb found; searching for .so directly"
-            find termux-packages -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
-          else
-            mkdir -p extracted
-            dpkg-deb -x "$DEB" extracted/
-            mkdir -p artifacts
-            find extracted -name "libvulkan_wrapper.so" -exec cp {} artifacts/ \;
-          fi
-
-      - name: Package as .wcp
-        run: |
-          mkdir -p package
-          cp artifacts/libvulkan_wrapper.so package/
-          cat > package/profile.json << 'EOF'
-          {
-            "type": "Vulkan",
-            "versionName": "1.0",
-            "versionCode": 1,
-            "description": "Vulkan wrapper for Mali GPUs",
-            "files": [
-              {
-                "source": "libvulkan_wrapper.so",
-                "target": "${system32}/libvulkan_wrapper.so"
-              }
-            ]
-          }
+          NDK=${{ steps.ndk.outputs.ndk-path }}
+          cat > android-aarch64.txt << EOF
+          [binaries]
+          c = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang'
+          cpp = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++'
+          ar = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          pkg-config = '/usr/bin/pkg-config'
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8-a'
+          endian = 'little'
           EOF
-          cd package
-          tar -cf ../vulkan_wrapper.wcp .
-          cd ..
+
+      - name: Patch zink_bo.c to remove DRM dependency
+        run: |
+          cd mesa-src/src/gallium/drivers/zink
+          # Wrap the DRM include
+          sed -i '/#include <xf86drm.h>/i#ifndef ANDROID' zink_bo.c
+          sed -i '/#include <xf86drm.h>/a#endif' zink_bo.c
+          # Stub out the function that uses drm_gem_close
+          sed -i '/^zink_bo_get_handle/,/^}/ {
+            /^{/a\
+          #ifndef ANDROID
+            /^}/i\
+          #endif
+          }' zink_bo.c
+
+      - name: Configure and build wrapper driver (wrap Vulkan driver)
+        run: |
+          export ANDROID_NDK=${{ steps.ndk.outputs.ndk-path }}
+          export CFLAGS="-DETIME=ETIMEDOUT -DANDROID"
+          export CXXFLAGS="-DETIME=ETIMEDOUT -DANDROID"
+          cd mesa-src
+          meson setup build \
+            --cross-file ../android-aarch64.txt \
+            -Dplatforms=android \
+            -Dvulkan-drivers=wrap \
+            -Dgallium-drivers= \
+            -Dandroid-stub=true \
+            -Dbuildtype=release \
+            -Dglx=disabled \
+            -Degl=disabled
+          ninja -C build
+
+      - name: Copy library
+        run: |
+          mkdir -p artifacts
+          cp mesa-src/build/src/vulkan/wrap/libvulkan_wrap.so artifacts/libvulkan_wrapper.so
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vulkan-wrapper
-          path: vulkan_wrapper.wcp
+          name: vulkan-wrapper-ndk
+          path: artifacts/libvulkan_wrapper.so
