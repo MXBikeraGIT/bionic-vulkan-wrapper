@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev
+          sudo apt install -y python3-pip meson ninja-build pkg-config libdrm-dev libelf-dev glslang-tools
           pip3 install mako
 
       - name: Setup Android NDK
@@ -71,7 +71,8 @@ jobs:
             -Dandroid-stub=true \
             -Dbuildtype=release \
             -Dglx=disabled \
-            -Degl=disabled
+            -Degl=disabled \
+            -Dglslang_quiet=true
           ninja -C build
 
       - name: Copy library
