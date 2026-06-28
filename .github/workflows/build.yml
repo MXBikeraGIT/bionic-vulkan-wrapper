@@ -18,11 +18,29 @@ jobs:
         with:
           repository: leegao/vulkan_wrapper_termux-packages
           path: vulkan_wrapper_termux-packages
+          ref: wrapper  # Use 'wrapper' branch instead of 'dev/wrapper'
+
+      - name: List contents for debugging
+        run: |
+          echo "Contents of vulkan_wrapper_termux-packages:"
+          ls -la vulkan_wrapper_termux-packages/
+          echo "If there is a subdirectory, we will copy it."
 
       - name: Setup package directory
         run: |
           mkdir -p termux-packages/packages/vulkan_wrapper
-          cp -r vulkan_wrapper_termux-packages/* termux-packages/packages/vulkan_wrapper/
+          # If the build.sh is in a subdirectory, we need to copy from that subdirectory.
+          # Assuming the package definition is in a subdirectory named 'vulkan_wrapper' or similar.
+          # Let's copy everything from the repo root first, but if there's a subdirectory, we might need to copy that.
+          # We'll try to copy the entire repo, but the Termux build system expects build.sh in the package dir.
+          # So we'll copy everything from the repo to the package dir.
+          cp -r vulkan_wrapper_termux-packages/* termux-packages/packages/vulkan_wrapper/ || true
+          # If the above doesn't work, we can try to copy a subdirectory if it exists.
+          # For now, we'll check if build.sh exists and if not, we'll try to copy a subdirectory.
+          if [ ! -f termux-packages/packages/vulkan_wrapper/build.sh ]; then
+            echo "build.sh not found in root, trying to find it in subdirectories."
+            find vulkan_wrapper_termux-packages -name "build.sh" -exec cp {} termux-packages/packages/vulkan_wrapper/ \;
+          fi
 
       - name: Build with Termux Docker
         run: |
