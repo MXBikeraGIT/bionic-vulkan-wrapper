@@ -56,6 +56,12 @@ jobs:
             g++-aarch64-linux-gnu \
             libdrm-dev:arm64
 
+          # Extract arm64 spirv-tools static libraries without APT file collisions
+          mkdir -p /tmp/arm64-debs
+          cd /tmp/arm64-debs
+          apt-get download spirv-tools:arm64
+          sudo dpkg-deb -x spirv-tools_*.deb /
+
       - name: Install Meson, Ninja, and Code Generators
         run: |
           python -m pip install --upgrade pip
@@ -70,6 +76,9 @@ jobs:
           ar = 'aarch64-linux-gnu-ar'
           strip = 'aarch64-linux-gnu-strip'
           pkg-config = 'aarch64-linux-gnu-pkg-config'
+
+          [properties]
+          pkg_config_libdir = ['/usr/lib/aarch64-linux-gnu/pkgconfig', '/usr/share/pkgconfig']
 
           [built-in options]
           c_args = ['-I/usr/include/aarch64-linux-gnu']
