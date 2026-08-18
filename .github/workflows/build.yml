@@ -72,7 +72,7 @@ jobs:
 
       - name: Patch Android Stub Typedefs
         run: |
-          # Fix buffer_handle_t typedef collision across stub headers
+          # Prevent buffer_handle_t typedef collisions between bionic stubs and vulkan headers
           if [ -f include/android_stub/cutils/native_handle.h ]; then
             sed -i 's/typedef const native_handle_t\* buffer_handle_t;/typedef void\* buffer_handle_t;/' include/android_stub/cutils/native_handle.h
           fi
@@ -105,9 +105,9 @@ jobs:
 
       - name: Configure Meson Build
         run: |
-          # Wipe existing cache to guarantee cross-file macro updates apply
+          # Purge build directory to ensure new cross flags take effect
           rm -rf build
-          
+
           meson setup build \
             --cross-file aarch64-cross.txt \
             --buildtype=release \
