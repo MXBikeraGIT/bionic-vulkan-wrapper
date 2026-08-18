@@ -20,16 +20,25 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Enable ARM64 Multiarch & Repositories
+      - name: Configure Multi-Arch APT and Repositories
         run: |
           sudo dpkg --add-architecture arm64
-          sudo sed -i 's/deb http:\/\/azure.archive.ubuntu.com/deb [arch=amd64,i386] http:\/\/azure.archive.ubuntu.com/g' /etc/apt/sources.list
-          sudo sed -i 's/deb http:\/\/security.ubuntu.com/deb [arch=amd64,i386] http:\/\/security.ubuntu.com/g' /etc/apt/sources.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+          
+          # Restrict existing x86 repositories (http and https) to amd64 and i386
+          sudo sed -i -E 's/deb (http|https):\/\//deb [arch=amd64,i386] \1:\/\//g' /etc/apt/sources.list
+          sudo sed -i -E 's/deb (http|https):\/\//deb [arch=amd64,i386] \1:\/\//g' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+          
+          # Add Ubuntu ports for arm64 target libraries
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main restricted universe multiverse
+          EOF
+          
           sudo apt-get update
 
-      - name: Install Cross-Compilers & ARM64 Target Libraries
+      - name: Install Build Tools & Target ARM64 Libraries
         run: |
           sudo apt-get install -y \
             bison \
