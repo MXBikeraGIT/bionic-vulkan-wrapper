@@ -52,6 +52,9 @@ jobs:
             spirv-tools \
             spirv-headers \
             pkg-config \
+            clang \
+            lld \
+            llvm \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             libdrm-dev:arm64
@@ -71,8 +74,8 @@ jobs:
         run: |
           cat << 'EOF' > aarch64-cross.txt
           [binaries]
-          c = 'aarch64-linux-gnu-gcc'
-          cpp = 'aarch64-linux-gnu-g++'
+          c = ['clang', '--target=aarch64-linux-gnu']
+          cpp = ['clang++', '--target=aarch64-linux-gnu']
           ar = 'aarch64-linux-gnu-ar'
           strip = 'aarch64-linux-gnu-strip'
           pkg-config = 'aarch64-linux-gnu-pkg-config'
@@ -83,8 +86,8 @@ jobs:
           [built-in options]
           c_args = ['-I/usr/include/aarch64-linux-gnu']
           cpp_args = ['-I/usr/include/aarch64-linux-gnu']
-          c_link_args = ['-L/usr/lib/aarch64-linux-gnu']
-          cpp_link_args = ['-L/usr/lib/aarch64-linux-gnu']
+          c_link_args = ['-L/usr/lib/aarch64-linux-gnu', '-fuse-ld=lld']
+          cpp_link_args = ['-L/usr/lib/aarch64-linux-gnu', '-fuse-ld=lld']
 
           [host_machine]
           system = 'android'
