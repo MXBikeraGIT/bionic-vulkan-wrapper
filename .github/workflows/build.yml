@@ -1,1 +1,79 @@
+name: Build Bionic-Wrapper-Mali
 
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-wrapper:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Cross-Compilers & Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bison \
+            flex \
+            gettext \
+            glslang-tools \
+            libdrm-dev \
+            pkg-config \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu
+
+      - name: Install Meson, Ninja, and Code Generators
+        run: |
+          python -m pip install --upgrade pip
+          pip install meson ninja mako pyyaml
+
+      - name: Generate Meson Cross-File
+        run: |
+          cat << 'EOF' > aarch64-cross.txt
+          [binaries]
+          c = 'aarch64-linux-gnu-gcc'
+          cpp = 'aarch64-linux-gnu-g++'
+          ar = 'aarch64-linux-gnu-ar'
+          strip = 'aarch64-linux-gnu-strip'
+          pkg-config = 'pkg-config'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8-a'
+          endian = 'little'
+          EOF
+
+      - name: Configure Meson Build
+        run: |
+          meson setup build \
+            --cross-file aarch64-cross.txt \
+            --buildtype=release \
+            -Dvulkan-drivers=wrapper \
+            -Dgallium-drivers="" \
+            -Dplatforms=android \
+            -Dplatform-sdk-version=30 \
+            -Dbuild-tests=false
+
+      - name: Compile Target
+        run: |
+          ninja -C build
+
+      - name: Upload Driver Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulkan-wrapper-mali
+          path: |
+            build/src/vulkan/wrapper/*.so
+            build/src/vulkan/wrapper/libvulkan_wrapper.so
