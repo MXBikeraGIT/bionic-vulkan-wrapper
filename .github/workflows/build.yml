@@ -24,12 +24,16 @@ jobs:
         run: |
           sudo dpkg --add-architecture arm64
           
-          # Restrict existing x86 repositories (http and https) to amd64 and i386
-          sudo sed -i -E 's/deb (http|https):\/\//deb [arch=amd64,i386] \1:\/\//g' /etc/apt/sources.list
-          sudo sed -i -E 's/deb (http|https):\/\//deb [arch=amd64,i386] \1:\/\//g' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+          # Remove runner DEB822 sources that cause 404 errors on arm64 lookups
+          sudo rm -f /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list
           
-          # Add Ubuntu ports for arm64 target libraries
-          cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+          # Write strict dual-arch configuration
+          cat <<EOF | sudo tee /etc/apt/sources.list
+          deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu jammy main restricted universe multiverse
+          deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu jammy-updates main restricted universe multiverse
+          deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu jammy-backports main restricted universe multiverse
+          deb [arch=amd64] http://security.ubuntu.com/ubuntu jammy-security main restricted universe multiverse
+
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse
           deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-backports main restricted universe multiverse
