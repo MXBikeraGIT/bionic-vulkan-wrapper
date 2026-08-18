@@ -54,7 +54,6 @@ jobs:
             pkg-config \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
-            spirv-tools:arm64 \
             libdrm-dev:arm64
 
       - name: Install Meson, Ninja, and Code Generators
