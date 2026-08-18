@@ -73,7 +73,9 @@ jobs:
       - name: Patch Android Stub Typedefs
         run: |
           # Align buffer_handle_t definition to avoid glibc/bionic stub header collision
-          sed -i 's/typedef const native_handle_t\* buffer_handle_t;/typedef void\* buffer_handle_t;/' include/android_stub/cutils/native_handle.h || true
+          if [ -f include/android_stub/cutils/native_handle.h ]; then
+            sed -i 's/typedef const native_handle_t\* buffer_handle_t;/typedef void\* buffer_handle_t;/' include/android_stub/cutils/native_handle.h
+          fi
 
       - name: Generate Meson Cross-File
         run: |
