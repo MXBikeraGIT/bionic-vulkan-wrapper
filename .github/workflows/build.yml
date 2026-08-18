@@ -20,18 +20,27 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Cross-Compilers & Build Tools
+      - name: Enable ARM64 Multiarch & Repositories
         run: |
+          sudo dpkg --add-architecture arm64
+          sudo sed -i 's/deb http:\/\/azure.archive.ubuntu.com/deb [arch=amd64,i386] http:\/\/azure.archive.ubuntu.com/g' /etc/apt/sources.list
+          sudo sed -i 's/deb http:\/\/security.ubuntu.com/deb [arch=amd64,i386] http:\/\/security.ubuntu.com/g' /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
           sudo apt-get update
+
+      - name: Install Cross-Compilers & ARM64 Target Libraries
+        run: |
           sudo apt-get install -y \
             bison \
             flex \
             gettext \
             glslang-tools \
-            libdrm-dev \
             pkg-config \
             gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu
+            g++-aarch64-linux-gnu \
+            libspirv-tools-dev:arm64 \
+            libdrm-dev:arm64
 
       - name: Install Meson, Ninja, and Code Generators
         run: |
@@ -46,7 +55,13 @@ jobs:
           cpp = 'aarch64-linux-gnu-g++'
           ar = 'aarch64-linux-gnu-ar'
           strip = 'aarch64-linux-gnu-strip'
-          pkg-config = 'pkg-config'
+          pkg-config = 'aarch64-linux-gnu-pkg-config'
+
+          [built-in options]
+          c_args = ['-I/usr/include/aarch64-linux-gnu']
+          cpp_args = ['-I/usr/include/aarch64-linux-gnu']
+          c_link_args = ['-L/usr/lib/aarch64-linux-gnu']
+          cpp_link_args = ['-L/usr/lib/aarch64-linux-gnu']
 
           [host_machine]
           system = 'android'
