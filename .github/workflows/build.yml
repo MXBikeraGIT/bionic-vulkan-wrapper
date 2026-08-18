@@ -84,8 +84,8 @@ jobs:
           pkg_config_libdir = ['/usr/lib/aarch64-linux-gnu/pkgconfig', '/usr/share/pkgconfig']
 
           [built-in options]
-          c_args = ['-I/usr/include/aarch64-linux-gnu', '-D__INTRODUCED_IN(x)=', '-D__INTRODUCED_IN_64(x)=', '-D__INTRODUCED_IN_32(x)=', '-DSYS_memfd_create=279', '-DSYS_getrandom=278', '-DKCMP_FILE=0', '-DNULL=((void*)0)', '-Wno-error=incompatible-pointer-types', '-Wno-incompatible-pointer-types']
-          cpp_args = ['-I/usr/include/aarch64-linux-gnu', '-D__INTRODUCED_IN(x)=', '-D__INTRODUCED_IN_64(x)=', '-D__INTRODUCED_IN_32(x)=', '-DSYS_memfd_create=279', '-DSYS_getrandom=278', '-DKCMP_FILE=0', '-DNULL=nullptr', '-Wno-error=incompatible-pointer-types', '-Wno-incompatible-pointer-types']
+          c_args = ['-I/usr/include/aarch64-linux-gnu', '-include', 'stdint.h', '-D__INTRODUCED_IN(x)=', '-D__INTRODUCED_IN_64(x)=', '-D__INTRODUCED_IN_32(x)=', '-DSYS_memfd_create=279', '-DSYS_getrandom=278', '-DKCMP_FILE=0', '-DNULL=((void*)0)', '-Wno-error=incompatible-pointer-types', '-Wno-incompatible-pointer-types']
+          cpp_args = ['-I/usr/include/aarch64-linux-gnu', '-include', 'stdint.h', '-D__INTRODUCED_IN(x)=', '-D__INTRODUCED_IN_64(x)=', '-D__INTRODUCED_IN_32(x)=', '-DSYS_memfd_create=279', '-DSYS_getrandom=278', '-DKCMP_FILE=0', '-DNULL=nullptr', '-Wno-error=incompatible-pointer-types', '-Wno-incompatible-pointer-types']
           c_link_args = ['-L/usr/lib/aarch64-linux-gnu', '-L/usr/aarch64-linux-gnu/lib', '-B/usr/aarch64-linux-gnu/lib', '-B/usr/lib/aarch64-linux-gnu', '-fuse-ld=lld']
           cpp_link_args = ['-L/usr/lib/aarch64-linux-gnu', '-L/usr/aarch64-linux-gnu/lib', '-B/usr/aarch64-linux-gnu/lib', '-B/usr/lib/aarch64-linux-gnu', '-fuse-ld=lld']
 
