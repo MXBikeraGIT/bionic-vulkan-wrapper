@@ -28,6 +28,11 @@
 #include "util/detect_os.h"
 #include "util/u_math.h"
 
+#if defined(ANDROID) || defined(__ANDROID__) || defined(HAVE_ANDROID_PLATFORM)
+#undef DETECT_OS_ANDROID
+#define DETECT_OS_ANDROID 1
+#endif
+
 #if DETECT_OS_ANDROID
 enum android_buffer_type {
    ANDROID_BUFFER_NONE = 0,
@@ -355,7 +360,7 @@ void *vk_image_view_create(struct vk_device *device,
                            bool driver_internal,
                            const VkImageViewCreateInfo *pCreateInfo,
                            const VkAllocationCallbacks *alloc,
-                           size_t size);
+                           size_size);
 void vk_image_view_destroy(struct vk_device *device,
                            const VkAllocationCallbacks *alloc,
                            struct vk_image_view *image_view);
