@@ -284,7 +284,7 @@ vk_android_import_anb(struct vk_device *device,
       .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR,
       .pNext = &ded_alloc,
       .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT,
-      .fd = os_dupfd_cloexec(native_buffer->handle->data[0]),
+      .fd = os_dupfd_cloexec(((const native_handle_t *)native_buffer->handle)->data[0]),
    };
 
    result = device->dispatch_table.AllocateMemory(
