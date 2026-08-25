@@ -29,6 +29,11 @@
 
 #include "util/detect_os.h"
 
+#if defined(ANDROID) || defined(__ANDROID__) || defined(HAVE_ANDROID_PLATFORM)
+#undef DETECT_OS_ANDROID
+#define DETECT_OS_ANDROID 1
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
