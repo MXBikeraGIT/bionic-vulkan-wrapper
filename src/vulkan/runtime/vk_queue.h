@@ -28,8 +28,14 @@
 
 #include "c11/threads.h"
 
+#include "util/detect_os.h"
 #include "util/list.h"
 #include "util/u_dynarray.h"
+
+#if defined(ANDROID) || defined(__ANDROID__) || defined(HAVE_ANDROID_PLATFORM)
+#undef DETECT_OS_ANDROID
+#define DETECT_OS_ANDROID 1
+#endif
 
 #ifdef __cplusplus
 extern "C" {
