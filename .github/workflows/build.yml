@@ -34,7 +34,7 @@ jobs:
           pip install "meson>=1.1.0" mako PyYAML
 
       - name: Setup Android NDK
-        uses: android-actions/setup-ndk@v3
+        uses: nttld/setup-ndk@v1
         with:
           ndk-version: 'r25c'
 
