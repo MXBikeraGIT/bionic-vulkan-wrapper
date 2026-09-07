@@ -1,4 +1,4 @@
-Name: Build Bionic Vulkan Wrapper Driver
+name: Build Bionic Vulkan Wrapper Driver
 
 on:
   push:
