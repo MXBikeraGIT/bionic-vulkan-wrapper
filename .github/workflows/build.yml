@@ -98,6 +98,10 @@ jobs:
           endian = 'little'
           EOF
 
+      - name: Patch Stub Header Conflict
+        run: |
+          sed -i 's/typedef const native_handle_t\* buffer_handle_t;/\/\/ typedef const native_handle_t* buffer_handle_t;/' include/android_stub/cutils/native_handle.h
+
       - name: Configure Meson Build
         run: |
           meson setup build \
