@@ -98,13 +98,6 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Patch Header Conflicts
-        run: |
-          # Disable duplicate typedef in android_stub to prevent collision with vk_android_native_buffer.h
-          if [ -f include/android_stub/cutils/native_handle.h ]; then
-            sed -i '/typedef const native_handle_t\* buffer_handle_t;/s/^/\/\/ /' include/android_stub/cutils/native_handle.h
-          fi
-
       - name: Configure Meson Build
         run: |
           meson setup build \
