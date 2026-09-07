@@ -1,4 +1,4 @@
-name: Build Bionic Vulkan Wrapper Driver
+Name: Build Bionic Vulkan Wrapper Driver
 
 on:
   push:
@@ -49,7 +49,7 @@ jobs:
           cpp = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang++'
           ar = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
           strip = '$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
-          pkg-config = 'pkg-config'
+          pkg-config = 'false'
 
           [host_machine]
           system = 'android'
@@ -65,9 +65,15 @@ jobs:
             -Dbuildtype=release \
             -Dlayout=mirror \
             -Dvulkan-drivers=wrapper \
+            -Dgallium-drivers= \
             -Dplatforms=android \
             -Dplatform-sdk-version=30 \
-            -Dandroid-stub=true
+            -Dandroid-stub=true \
+            -Dlibdrm=disabled \
+            -Dglx=disabled \
+            -Degl=disabled \
+            -Dgbm=disabled \
+            -Dtools=[]
 
       - name: Compile Driver with Ninja
         run: |
@@ -77,6 +83,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vulkan-wrapper-driver
-          path: |
-            build/src/vulkan/wrapper/*.so
-            build/src/vulkan/*.so
+          path: build/src/vulkan/wrapper/libvulkan_wrapper.so
