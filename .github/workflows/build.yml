@@ -62,14 +62,13 @@ jobs:
         run: |
           meson setup build \
             --cross-file android-aarch64.cross \
+            --layout=mirror \
             -Dbuildtype=release \
-            -Dlayout=mirror \
             -Dvulkan-drivers=wrapper \
             -Dgallium-drivers= \
             -Dplatforms=android \
             -Dplatform-sdk-version=30 \
             -Dandroid-stub=true \
-            -Dlibdrm=disabled \
             -Dglx=disabled \
             -Degl=disabled \
             -Dgbm=disabled \
